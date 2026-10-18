@@ -1,18 +1,29 @@
 -- PlayerData: permanent profile (saved) plus run state (wiped on death).
 -- Saved: LevelsCompleted, BestAscension, EntitiesMogged, Purchases.
--- Run (never saved): Ascension, CurrentLevel, Keys.
+-- Run (never saved): Ascension, CurrentLevel, Keys, Collected.
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 
 local PlayerData = {}
 
-local PROFILE_STORE = DataStoreService:GetDataStore("PlayerProfile_v1")
-local BOARDS = {
-	LevelsCompleted = DataStoreService:GetOrderedDataStore("LB_LevelsCompleted_v1"),
-	BestAscension = DataStoreService:GetOrderedDataStore("LB_BestAscension_v1"),
-	EntitiesMogged = DataStoreService:GetOrderedDataStore("LB_EntitiesMogged_v1"),
-}
+-- GetDataStore throws in places that aren't published yet, so guard it.
+-- Without stores the game still runs, it just can't save.
+local PROFILE_STORE
+local BOARDS = {}
+do
+	local ok, err = pcall(function()
+		PROFILE_STORE = DataStoreService:GetDataStore("PlayerProfile_v1")
+		BOARDS.LevelsCompleted = DataStoreService:GetOrderedDataStore("LB_LevelsCompleted_v1")
+		BOARDS.BestAscension = DataStoreService:GetOrderedDataStore("LB_BestAscension_v1")
+		BOARDS.EntitiesMogged = DataStoreService:GetOrderedDataStore("LB_EntitiesMogged_v1")
+	end)
+	if not ok then
+		PROFILE_STORE = nil
+		BOARDS = {}
+		warn("PlayerData: DataStores unavailable, running without saving. Publish the place and enable Studio API access. (" .. tostring(err) .. ")")
+	end
+end
 local AUTOSAVE_SECONDS = 120
 local MAX_ATTEMPTS = 3
 
@@ -33,7 +44,7 @@ local function newProfile()
 end
 
 local function newRun()
-	return { Ascension = 0, CurrentLevel = 1, Keys = {} }
+	return { Ascension = 0, CurrentLevel = 1, Keys = {}, Collected = {} }
 end
 
 local function retry(fn)
@@ -54,6 +65,11 @@ local function profileKey(player)
 end
 
 local function loadProfile(player)
+	if not PROFILE_STORE then
+		profiles[player] = newProfile()
+		canSave[player] = false
+		return
+	end
 	local ok, data = retry(function()
 		return PROFILE_STORE:GetAsync(profileKey(player))
 	end)
